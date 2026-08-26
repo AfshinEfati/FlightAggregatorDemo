@@ -21,6 +21,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Prepare test environment
+        run: touch .env
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -39,4 +42,4 @@ jobs:
         run: vendor/bin/pint --test app routes tests bootstrap/providers.php
 
       - name: Run test suite
-        run: php artisan test -- --display-warnings
+        run: php artisan test --display-warnings --fail-on-warning

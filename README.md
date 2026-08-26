@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/AfshinEfati/FlightAggregatorDemo/actions/workflows/ci.yml/badge.svg)](https://github.com/AfshinEfati/FlightAggregatorDemo/actions/workflows/ci.yml)
 
-A production-oriented Laravel backend that polls multiple flight suppliers asynchronously, normalizes heterogeneous supplier responses, stores unified flight data, and exposes a single search API.
+A production-oriented Laravel backend that polls multiple flight suppliers asynchronously, normalizes supplier responses behind a shared adapter contract, stores unified flight data, and exposes a single search API.
 
 This project focuses on backend architecture, queue-based third-party integrations, caching, failure handling, Dockerized infrastructure, and testable supplier adapters rather than UI concerns.
 
@@ -37,8 +37,8 @@ Client ──► REST API ──► Flight Search Service ──► Redis / Data
 - **Queue-based polling** keeps slow third-party integrations outside request/response cycles.
 - **Retry and backoff** preserve supplier failures as exceptions so queue retries can recover from temporary outages.
 - **Per-supplier schedules** honor each supplier's `poll_interval_minutes` instead of using one global polling frequency.
-- **Overlap protection** prevents duplicate scheduled polling jobs from running concurrently for the same scheduled task.
-- **DTO normalization** provides one internal flight representation regardless of supplier format.
+- **Overlap protection** assigns a unique schedule lock to each supplier/route polling task.
+- **DTO normalization** provides one internal flight representation regardless of supplier endpoint.
 - **Transactional synchronization** uses `updateOrCreate` with stable raw hashes to make repeated syncs idempotent.
 - **Versioned route cache invalidation** refreshes both general and date-specific search caches after supplier data changes.
 - **Redis caching** reduces repeated database work for common searches.

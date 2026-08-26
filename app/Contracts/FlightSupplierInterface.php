@@ -2,13 +2,14 @@
 
 namespace App\Contracts;
 
+use App\DTOs\FlightDTO;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 
 interface FlightSupplierInterface
 {
     /**
-     * @return Collection<int, \App\DTOs\FlightDTO>
+     * @return Collection<int, FlightDTO>
      */
     public function fetchFlights(
         string $origin,

@@ -1,0 +1,9 @@
+{
+    "preset": "laravel",
+    "exclude": [
+        "config/l5-swagger.php"
+    ],
+    "rules": {
+        "phpdoc_separation": false
+    }
+}

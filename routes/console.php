@@ -19,15 +19,14 @@ if ($shouldRegisterSchedules) {
                 $interval = max(1, intval($supplier->poll_interval_minutes));
 
                 foreach ($routes as $route) {
-                    $scheduledJob = Schedule::job(new PollSupplierJob($supplier, $route));
+                    Schedule::job(new PollSupplierJob($supplier, $route))
+                        ->everyMinute()
+                        ->when(function () use ($interval): bool {
+                            $currentMinute = intdiv(now()->timestamp, 60);
 
-                    if ($interval >= 60) {
-                        $scheduledJob->hourly();
-                    } else {
-                        $scheduledJob->cron("*/{$interval} * * * *");
-                    }
-
-                    $scheduledJob->withoutOverlapping();
+                            return $currentMinute % $interval === 0;
+                        })
+                        ->withoutOverlapping();
                 }
             }
         }

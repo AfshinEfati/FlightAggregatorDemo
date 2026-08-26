@@ -3,9 +3,12 @@
 namespace App\Adapters;
 
 use App\Contracts\FlightSupplierInterface;
+use App\Exceptions\SupplierRequestException;
 use App\Models\Supplier;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 abstract class BaseSupplierAdapter implements FlightSupplierInterface
 {
@@ -21,31 +24,36 @@ abstract class BaseSupplierAdapter implements FlightSupplierInterface
         return $this->supplier->slug;
     }
 
-    protected function makeRequest(string $origin, string $destination)
-    {
+    protected function makeRequest(
+        string $origin,
+        string $destination,
+        CarbonInterface $departureDate
+    ): array {
         try {
-            $response = Http::timeout($this->supplier->timeout_seconds ?? 30)
+            $response = Http::acceptJson()
+                ->timeout($this->supplier->timeout_seconds ?? 30)
                 ->retry($this->supplier->retry_attempts ?? 3, 100)
                 ->post($this->supplier->base_url, [
-                    'Origin' => $origin,
-                    'Destination' => $destination,
-                    'DepartureDate' => now()->addDay()->format('Y-m-d'), // Example
-                ]);
+                    'Origin' => strtoupper($origin),
+                    'Destination' => strtoupper($destination),
+                    'DepartureDate' => $departureDate->format('Y-m-d'),
+                ])
+                ->throw();
 
-            if ($response->successful()) {
-                return $response->json();
-            }
+            return $response->json() ?? [];
+        } catch (Throwable $exception) {
+            Log::warning('Supplier request failed', [
+                'supplier' => $this->supplier->slug,
+                'origin' => strtoupper($origin),
+                'destination' => strtoupper($destination),
+                'departure_date' => $departureDate->format('Y-m-d'),
+                'message' => $exception->getMessage(),
+            ]);
 
-            Log::error("Supplier {$this->supplier->slug} request failed", [
-                'status' => $response->status(),
-                'body' => $response->body(),
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Supplier {$this->supplier->slug} exception", [
-                'message' => $e->getMessage(),
-            ]);
+            throw SupplierRequestException::forSupplier(
+                $this->supplier->slug,
+                $exception
+            );
         }
-
-        return null;
     }
 }

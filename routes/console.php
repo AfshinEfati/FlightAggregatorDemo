@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 
-if (app()->runningInConsole() && !app()->runningUnitTests()) {
+if (app()->runningInConsole() && ! app()->runningUnitTests()) {
     try {
         if (Schema::hasTable('suppliers') && Schema::hasTable('routes')) {
             $suppliers = Supplier::query()->where('is_active', true)->get();

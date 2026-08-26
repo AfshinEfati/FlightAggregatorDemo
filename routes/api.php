@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::get('/flights', [FlightController::class, 'search']);
-    
+
     Route::prefix('admin')->group(function () {
         Route::get('/suppliers', [SupplierController::class, 'index']);
         Route::patch('/suppliers/{supplier}', [SupplierController::class, 'update']);

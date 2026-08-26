@@ -13,8 +13,6 @@ use Illuminate\Support\Facades\DB;
 class FlightSyncService
 {
     /**
-     * @param Supplier $supplier
-     * @param Route $route
      * @param Collection<int, FlightDTO> $flights
      */
     public function sync(Supplier $supplier, Route $route, Collection $flights): void
@@ -43,7 +41,7 @@ class FlightSyncService
 
             $supplier->update(['updated_at' => now()]);
         });
-        
+
         event(new FlightDataUpdated($supplier, $route));
     }
 }

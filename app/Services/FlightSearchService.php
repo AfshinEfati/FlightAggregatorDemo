@@ -3,18 +3,19 @@
 namespace App\Services;
 
 use App\Models\Flight;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 class FlightSearchService
 {
     public function search(array $params): Collection
     {
-        $origin = $params['origin'];
-        $destination = $params['destination'];
+        $origin = strtoupper($params['origin']);
+        $destination = strtoupper($params['destination']);
         $date = $params['date'] ?? null;
 
-        $cacheKey = "flights:{$origin}:{$destination}" . ($date ? ":{$date}" : "");
+        $version = $this->cacheVersion($origin, $destination);
+        $cacheKey = $this->cacheKey($origin, $destination, $date, $version);
         $ttl = config('suppliers.cache_ttl', 300);
 
         return Cache::remember($cacheKey, $ttl, function () use ($origin, $destination, $date) {
@@ -32,11 +33,28 @@ class FlightSearchService
 
     public function clearCache(string $origin, string $destination): void
     {
-        // Simple invalidation. In production, we might need a more sophisticated approach
-        // if we have date-specific keys.
-        $cacheKey = "flights:{$origin}:{$destination}";
-        Cache::forget($cacheKey);
-        
-        // Also clear common date-based keys if possible or use tags (if supported by store)
+        $origin = strtoupper($origin);
+        $destination = strtoupper($destination);
+        $versionKey = $this->versionKey($origin, $destination);
+        $currentVersion = $this->cacheVersion($origin, $destination);
+
+        Cache::forever($versionKey, $currentVersion + 1);
+    }
+
+    private function cacheVersion(string $origin, string $destination): int
+    {
+        return (int) Cache::get($this->versionKey($origin, $destination), 1);
+    }
+
+    private function versionKey(string $origin, string $destination): string
+    {
+        return "flights:version:{$origin}:{$destination}";
+    }
+
+    private function cacheKey(string $origin, string $destination, ?string $date, int $version): string
+    {
+        $key = "flights:{$origin}:{$destination}:v{$version}";
+
+        return $date ? "{$key}:{$date}" : $key;
     }
 }

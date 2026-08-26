@@ -21,7 +21,7 @@ class PollSuppliersCommand extends Command
         $supplierSlug = $this->argument('supplier');
         $departureDate = $this->option('date');
 
-        if ($departureDate && !$this->isValidDate($departureDate)) {
+        if ($departureDate && ! $this->isValidDate($departureDate)) {
             $this->error('The --date option must use the Y-m-d format.');
 
             return self::FAILURE;

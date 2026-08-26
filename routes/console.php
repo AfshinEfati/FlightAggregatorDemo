@@ -20,6 +20,7 @@ if ($shouldRegisterSchedules) {
 
                 foreach ($routes as $route) {
                     Schedule::job(new PollSupplierJob($supplier, $route))
+                        ->name("poll-supplier:{$supplier->id}:route:{$route->id}")
                         ->everyMinute()
                         ->when(function () use ($interval): bool {
                             $currentMinute = intdiv(now()->timestamp, 60);

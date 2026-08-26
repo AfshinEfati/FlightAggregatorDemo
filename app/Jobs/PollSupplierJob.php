@@ -40,7 +40,7 @@ class PollSupplierJob implements ShouldQueue
         SupplierRegistryService $registry,
         FlightSyncService $syncService
     ): void {
-        if (!$this->supplier->is_active) {
+        if (! $this->supplier->is_active) {
             return;
         }
 

@@ -10,10 +10,6 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class FlightController extends Controller
 {
-    public function __construct(
-        protected FlightSearchService $searchService
-    ) {}
-
     /**
      * @OA\Get(
      *      path="/api/v1/flights",
@@ -52,9 +48,11 @@ class FlightController extends Controller
      *      )
      * )
      */
-    public function search(SearchFlightsRequest $request): AnonymousResourceCollection
-    {
-        $flights = $this->searchService->search($request->validated());
+    public function search(
+        SearchFlightsRequest $request,
+        FlightSearchService $searchService
+    ): AnonymousResourceCollection {
+        $flights = $searchService->search($request->validated());
 
         return FlightResource::collection($flights);
     }

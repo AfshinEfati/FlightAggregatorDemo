@@ -2,8 +2,8 @@
 
 namespace App\DTOs;
 
-use Spatie\LaravelData\Data;
 use Carbon\Carbon;
+use Spatie\LaravelData\Data;
 
 class FlightDTO extends Data
 {
@@ -18,6 +18,6 @@ class FlightDTO extends Data
         public string $currency,
         public int $seatsAvailable,
         public string $cabinClass,
-        public string $rawHash
+        public string $rawHash,
     ) {}
 }

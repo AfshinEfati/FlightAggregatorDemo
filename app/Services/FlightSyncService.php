@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 class FlightSyncService
 {
     /**
-     * @param Collection<int, FlightDTO> $flights
+     * @param  Collection<int, FlightDTO>  $flights
      */
     public function sync(Supplier $supplier, Route $route, Collection $flights): void
     {

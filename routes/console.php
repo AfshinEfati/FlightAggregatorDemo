@@ -6,7 +6,6 @@ use App\Models\Supplier;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Schema;
-use Throwable;
 
 if (app()->runningInConsole() && ! app()->runningUnitTests()) {
     try {
@@ -30,7 +29,7 @@ if (app()->runningInConsole() && ! app()->runningUnitTests()) {
                 }
             }
         }
-    } catch (Throwable $exception) {
+    } catch (\Throwable $exception) {
         Log::debug('Supplier polling schedules were not registered', [
             'message' => $exception->getMessage(),
         ]);

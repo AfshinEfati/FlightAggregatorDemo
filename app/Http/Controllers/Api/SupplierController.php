@@ -62,6 +62,7 @@ class SupplierController extends Controller
     public function update(UpdateSupplierRequest $request, Supplier $supplier): SupplierResource
     {
         $supplier->update($request->validated());
+
         return new SupplierResource($supplier);
     }
 
@@ -92,16 +93,17 @@ class SupplierController extends Controller
     public function poll(Supplier $supplier): JsonResponse
     {
         $routes = Route::all();
-        
+
         foreach ($routes as $route) {
             PollSupplierJob::dispatch($supplier, $route);
         }
 
         return response()->json([
-            'message' => "Polling jobs dispatched for supplier: {$supplier->name}"
+            'message' => "Polling jobs dispatched for supplier: {$supplier->name}",
         ]);
     }
 }
+
 /**
  * @OA\Schema(
  *     schema="UpdateSupplierRequest",

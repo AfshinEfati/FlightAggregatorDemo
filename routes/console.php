@@ -1,26 +1,38 @@
 <?php
 
-use App\Models\Supplier;
-use App\Models\Route;
 use App\Jobs\PollSupplierJob;
+use App\Models\Route;
+use App\Models\Supplier;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Schema;
+use Throwable;
 
-// Dynamic: reads all active suppliers from DB, schedules each independently
 if (app()->runningInConsole() && !app()->runningUnitTests()) {
     try {
         if (Schema::hasTable('suppliers') && Schema::hasTable('routes')) {
-            $suppliers = Supplier::where('is_active', true)->get();
+            $suppliers = Supplier::query()->where('is_active', true)->get();
             $routes = Route::all();
 
             foreach ($suppliers as $supplier) {
+                $interval = max(1, (int) $supplier->poll_interval_minutes);
+
                 foreach ($routes as $route) {
-                    Schedule::job(new PollSupplierJob($supplier, $route))
-                        ->everyTwoMinutes(); 
+                    $scheduledJob = Schedule::job(new PollSupplierJob($supplier, $route));
+
+                    if ($interval >= 60) {
+                        $scheduledJob->hourly();
+                    } else {
+                        $scheduledJob->cron("*/{$interval} * * * *");
+                    }
+
+                    $scheduledJob->withoutOverlapping();
                 }
             }
         }
-    } catch (\Exception $e) {
-        // Migration might not have run yet
+    } catch (Throwable $exception) {
+        Log::debug('Supplier polling schedules were not registered', [
+            'message' => $exception->getMessage(),
+        ]);
     }
 }

@@ -18,7 +18,7 @@ class V16SupplierAdapter extends BaseSupplierAdapter
 
         $data = $this->makeRequest($origin, $destination, $departureDate);
 
-        if (!isset($data['AvailableFlights']) || !is_array($data['AvailableFlights'])) {
+        if (! isset($data['AvailableFlights']) || ! is_array($data['AvailableFlights'])) {
             return collect();
         }
 

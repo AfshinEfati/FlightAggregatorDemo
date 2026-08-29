@@ -1,9 +1,18 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "afshinefati/flight-aggregator-demo",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "description": "Production-oriented Laravel flight aggregator with asynchronous supplier polling, Redis queues and caching, Docker, OpenAPI, and automated tests.",
+    "keywords": [
+        "laravel",
+        "backend",
+        "rest-api",
+        "redis",
+        "queues",
+        "docker",
+        "openapi",
+        "flight-aggregator"
+    ],
     "license": "MIT",
     "require": {
         "php": "^8.3",

@@ -2,9 +2,22 @@
 
 [![CI](https://github.com/AfshinEfati/FlightAggregatorDemo/actions/workflows/ci.yml/badge.svg)](https://github.com/AfshinEfati/FlightAggregatorDemo/actions/workflows/ci.yml)
 
-A production-oriented Laravel backend that polls multiple flight suppliers asynchronously, normalizes supplier responses behind a shared adapter contract, stores unified flight data, and exposes a single search API.
+A production-oriented **Laravel backend** that integrates multiple flight suppliers, polls them asynchronously, normalizes different supplier payloads into a shared domain model, stores unified flight data, and exposes a single search API.
 
-This project focuses on backend architecture, queue-based third-party integrations, caching, failure handling, Dockerized infrastructure, and testable supplier adapters rather than UI concerns.
+The project is designed to demonstrate practical backend concerns found in integration-heavy systems: **queues, retries, idempotent synchronization, caching, failure isolation, scheduled jobs, API documentation, automated testing, and Dockerized infrastructure**.
+
+## At a Glance
+
+- Multiple external suppliers behind a shared adapter contract
+- Queue-based supplier polling outside the HTTP request lifecycle
+- Configurable timeout, retry, backoff, and polling intervals
+- DTO-based normalization into one internal flight representation
+- Transactional and idempotent synchronization
+- Redis-backed search caching with versioned invalidation
+- Events/listeners for decoupled cache invalidation
+- REST API with OpenAPI / Swagger documentation
+- Docker Compose development/runtime environment
+- Automated PHPUnit and Pint checks through GitHub Actions
 
 ## Architecture
 
@@ -30,35 +43,72 @@ Queued Polling Jobs ──► Flight Sync Service ──► MySQL
 Client ──► REST API ──► Flight Search Service ──► Redis / Database
 ```
 
-## Engineering Highlights
+## Key Design Decisions
 
-- **Adapter pattern** isolates supplier-specific payloads behind a common contract.
-- **Explicit departure-date polling** allows scheduled/default polling as well as manual date-specific synchronization.
-- **Queue-based polling** keeps slow third-party integrations outside request/response cycles.
-- **Retry and backoff** preserve supplier failures as exceptions so queue retries can recover from temporary outages.
-- **Per-supplier schedules** honor each supplier's `poll_interval_minutes` instead of using one global polling frequency.
-- **Overlap protection** assigns a unique schedule lock to each supplier/route polling task.
-- **DTO normalization** provides one internal flight representation regardless of supplier endpoint.
-- **Transactional synchronization** uses `updateOrCreate` with stable raw hashes to make repeated syncs idempotent.
-- **Versioned route cache invalidation** refreshes both general and date-specific search caches after supplier data changes.
-- **Redis caching** reduces repeated database work for common searches.
-- **Events and listeners** decouple synchronization from cache invalidation.
-- **Docker Compose** provides PHP-FPM, Nginx, MySQL, Redis, Supervisor, queue workers, and the Laravel scheduler.
-- **OpenAPI / Swagger** documents the HTTP API.
-- **Automated CI** runs Laravel tests and Pint style checks on pushes and pull requests.
+### Supplier isolation
 
-## Stack
+Supplier-specific payloads are isolated behind `FlightSupplierInterface` and adapter implementations. The rest of the application works with normalized `FlightDTO` objects instead of depending on external response formats.
 
-- PHP 8.3
-- Laravel 13
-- MySQL 8
-- Redis 7
-- Docker / Docker Compose
-- Nginx
-- Supervisor
-- PHPUnit
-- Laravel Pint
-- L5 Swagger / OpenAPI
+### Asynchronous polling
+
+Supplier calls are dispatched to the `supplier-polling` queue. Slow or temporarily unavailable third-party APIs therefore do not block normal API requests.
+
+Each supplier can define its own:
+
+- `poll_interval_minutes`
+- `timeout_seconds`
+- `retry_attempts`
+- `is_active`
+
+Scheduled tasks also use per-supplier overlap locks to avoid duplicate polling work for the same supplier/route combination.
+
+### Failure handling and retries
+
+HTTP timeouts and failed supplier responses are surfaced as `SupplierRequestException` instances rather than being converted into an empty result set.
+
+```text
+HTTP timeout / 5xx
+      │
+      ▼
+SupplierRequestException
+      │
+      ▼
+PollSupplierJob fails
+      │
+      ▼
+Queue retry + backoff
+```
+
+This keeps a real "zero flights" response distinct from an unavailable supplier.
+
+### Idempotent synchronization
+
+`FlightSyncService` persists normalized flights inside a database transaction. Stable raw hashes are used with `updateOrCreate`, allowing repeated polling to update existing flight records instead of creating duplicates.
+
+### Cache invalidation
+
+Search results are cached per route and optional departure date.
+
+```text
+flights:{origin}:{destination}:v{version}:{date?}
+```
+
+After fresh supplier data is synchronized, the route cache version is incremented. New requests immediately move to the new namespace while old keys expire naturally.
+
+## Tech Stack
+
+| Area | Technology |
+| --- | --- |
+| Backend | PHP 8.3, Laravel 13 |
+| Database | MySQL 8 |
+| Cache / Queue | Redis 7 |
+| Web Server | Nginx |
+| Process Management | Supervisor |
+| Infrastructure | Docker, Docker Compose |
+| Testing | PHPUnit |
+| Code Style | Laravel Pint |
+| API Documentation | L5 Swagger / OpenAPI |
+| CI | GitHub Actions |
 
 ## Quick Start
 
@@ -77,7 +127,7 @@ docker-compose exec app php artisan key:generate
 docker-compose exec app php artisan migrate --seed
 ```
 
-The `app` container runs PHP-FPM, queue workers, and `schedule:work` under Supervisor.
+The `app` container currently runs PHP-FPM, queue workers, and `schedule:work` under Supervisor.
 
 ## Supplier Polling
 
@@ -105,15 +155,6 @@ Or combine both:
 docker-compose exec app php artisan suppliers:poll sepehr --date=2026-09-10
 ```
 
-Each supplier stores operational settings in the database, including:
-
-- `poll_interval_minutes`
-- `timeout_seconds`
-- `retry_attempts`
-- `is_active`
-
-Scheduled polling reads `poll_interval_minutes` per supplier and dispatches jobs to the `supplier-polling` queue. Failed supplier HTTP calls are surfaced as `SupplierRequestException` instances so the queued job can retry using backoff delays.
-
 ## API
 
 ### Search flights
@@ -136,7 +177,7 @@ PATCH /api/v1/admin/suppliers/{id}
 POST  /api/v1/admin/suppliers/{id}/poll
 ```
 
-Swagger documentation is available after generating it:
+Generate Swagger documentation:
 
 ```bash
 php artisan l5-swagger:generate
@@ -147,50 +188,6 @@ Then open:
 ```text
 /api/documentation
 ```
-
-## Supplier Flow
-
-Each supplier is resolved through `SupplierRegistryService` and exposed through `FlightSupplierInterface`.
-
-A supplier adapter is responsible for:
-
-1. Calling the external supplier API for a route and departure date.
-2. Applying supplier timeout/retry settings.
-3. Preserving HTTP failures as domain-level supplier exceptions.
-4. Handling supplier-specific response structure.
-5. Mapping results to `FlightDTO` objects.
-6. Returning normalized data to the queue job.
-
-`PollSupplierJob` then passes normalized flights to `FlightSyncService`, which persists them inside a database transaction and emits `FlightDataUpdated` after a successful sync.
-
-## Caching Strategy
-
-Searches are cached per route and optional departure date.
-
-```text
-flights:{origin}:{destination}:v{version}:{date?}
-```
-
-When fresh supplier data is synchronized, the route cache version is incremented. New requests immediately use a new namespace, so date-specific cached results cannot remain stale while old keys are allowed to expire naturally.
-
-## Failure Handling
-
-Temporary supplier failures are intentionally different from an empty flight result.
-
-```text
-HTTP timeout / 5xx
-      │
-      ▼
-SupplierRequestException
-      │
-      ▼
-PollSupplierJob fails
-      │
-      ▼
-Queue retry + backoff
-```
-
-This avoids silently treating an unavailable supplier as a valid response with zero flights.
 
 ## Testing
 
@@ -206,7 +203,7 @@ Run style checks:
 vendor/bin/pint --test
 ```
 
-The test suite covers:
+The current test suite covers:
 
 - flight search API behavior
 - general and date-specific cache invalidation
@@ -215,17 +212,7 @@ The test suite covers:
 - supplier HTTP failure handling
 - CLI departure-date validation
 
-CI executes the test suite and Pint checks automatically on GitHub pushes and pull requests.
-
-## Docker Services
-
-| Service | Purpose |
-| --- | --- |
-| PHP 8.3-FPM | Laravel application runtime |
-| Nginx | HTTP server |
-| MySQL 8 | Persistent flight and supplier data |
-| Redis 7 | Cache and queue backend |
-| Supervisor | PHP-FPM, queue workers, and scheduler process management |
+GitHub Actions runs the test suite and Pint checks automatically on pushes and pull requests.
 
 ## Project Structure
 
@@ -241,6 +228,10 @@ app/
 ├── Models/          # Eloquent models
 └── Services/        # Search, sync, and supplier registry logic
 ```
+
+## What This Project Demonstrates
+
+This repository is intentionally backend-focused. It shows how I approach third-party integrations and asynchronous workflows in Laravel: keeping external systems isolated, making repeated synchronization safe, distinguishing failures from valid empty responses, keeping cached data coherent, and covering critical behavior with automated tests.
 
 ## License
 

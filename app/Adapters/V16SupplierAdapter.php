@@ -25,22 +25,31 @@ class V16SupplierAdapter extends BaseSupplierAdapter
         return collect($data['AvailableFlights'])->map(function (array $flight) use ($origin, $destination) {
             $departureAt = Carbon::parse($flight['DepartureDate'].' '.$flight['DepartureTime']);
             $arrivalAt = Carbon::parse($flight['ArrivalDate'].' '.$flight['ArrivalTime']);
+            $normalizedOrigin = strtoupper($origin);
+            $normalizedDestination = strtoupper($destination);
+            $flightNumber = strtoupper(trim((string) $flight['FlightNumber']));
+            $cabinClass = trim((string) ($flight['CabinClass'] ?? 'Economy'));
 
-            $rawHash = md5(
-                $this->supplier->id.$flight['FlightNumber'].$departureAt->toIso8601String()
-            );
+            $rawHash = hash('sha256', implode('|', [
+                (string) $this->supplier->id,
+                $flightNumber,
+                $normalizedOrigin,
+                $normalizedDestination,
+                $departureAt->toIso8601String(),
+                strtoupper($cabinClass),
+            ]));
 
             return new FlightDTO(
-                flightNumber: $flight['FlightNumber'],
+                flightNumber: $flightNumber,
                 airline: $flight['Airline'] ?? 'Unknown',
-                origin: strtoupper($origin),
-                destination: strtoupper($destination),
+                origin: $normalizedOrigin,
+                destination: $normalizedDestination,
                 departureAt: $departureAt,
                 arrivalAt: $arrivalAt,
                 price: (float) $flight['Price'],
                 currency: $flight['Currency'] ?? 'IRR',
                 seatsAvailable: (int) ($flight['Capacity'] ?? 0),
-                cabinClass: $flight['CabinClass'] ?? 'Economy',
+                cabinClass: $cabinClass,
                 rawHash: $rawHash
             );
         });

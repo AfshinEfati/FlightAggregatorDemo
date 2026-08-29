@@ -26,8 +26,7 @@ if ($shouldRegisterSchedules) {
                             $currentMinute = intdiv(now()->timestamp, 60);
 
                             return $currentMinute % $interval === 0;
-                        })
-                        ->withoutOverlapping();
+                        });
                 }
             }
         }

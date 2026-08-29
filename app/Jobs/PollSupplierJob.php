@@ -11,6 +11,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -34,6 +35,30 @@ class PollSupplierJob implements ShouldQueue
     public function backoff(): array
     {
         return [5, 15, 30];
+    }
+
+    /**
+     * Prevent two workers from polling the same supplier/route/date concurrently.
+     * Duplicate scheduled jobs can be discarded because the next schedule tick
+     * will enqueue fresh work again.
+     */
+    public function middleware(): array
+    {
+        $date = $this->departureDate
+            ?? CarbonImmutable::now()->addDay()->toDateString();
+
+        $key = sprintf(
+            'supplier:%s:route:%s:date:%s',
+            $this->supplier->getKey(),
+            $this->route->getKey(),
+            $date,
+        );
+
+        return [
+            (new WithoutOverlapping($key))
+                ->dontRelease()
+                ->expireAfter($this->timeout + 30),
+        ];
     }
 
     public function handle(

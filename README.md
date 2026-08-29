@@ -11,13 +11,15 @@ The project is designed to demonstrate practical backend concerns found in integ
 - Multiple external suppliers behind a shared adapter contract
 - Queue-based supplier polling outside the HTTP request lifecycle
 - Configurable timeout, retry, backoff, and polling intervals
+- Job-level overlap protection for supplier/route/date polling
 - DTO-based normalization into one internal flight representation
 - Transactional and idempotent synchronization
 - Redis-backed search caching with versioned invalidation
 - Events/listeners for decoupled cache invalidation
+- Separate PHP-FPM, queue-worker, and scheduler containers
+- Runtime health checks for the HTTP and data-service path
 - REST API with OpenAPI / Swagger documentation
-- Docker Compose development/runtime environment
-- Automated PHPUnit and Pint checks through GitHub Actions
+- Automated PHPUnit, Pint, and Docker validation through GitHub Actions
 
 ## Architecture
 
@@ -40,7 +42,19 @@ Queued Polling Jobs ──► Flight Sync Service ──► MySQL
       └──────────────► Cache Invalidation
                               │
                               ▼
-Client ──► REST API ──► Flight Search Service ──► Redis / Database
+Client ──► Nginx ──► REST API ──► Flight Search Service ──► Redis / Database
+```
+
+Runtime processes are isolated into independent Compose services:
+
+```text
+nginx ──► app (PHP-FPM)
+            │
+            ├── Redis
+            └── MySQL
+
+queue-worker ──► Redis / Supplier APIs / MySQL
+scheduler    ──► dispatches supplier polling jobs
 ```
 
 ## Key Design Decisions
@@ -60,7 +74,7 @@ Each supplier can define its own:
 - `retry_attempts`
 - `is_active`
 
-Scheduled tasks also use per-supplier overlap locks to avoid duplicate polling work for the same supplier/route combination.
+`PollSupplierJob` applies a queue-level overlap lock keyed by **supplier + route + departure date**. This prevents two workers from polling the same logical workload concurrently while still allowing different suppliers, routes, and dates to run in parallel.
 
 ### Failure handling and retries
 
@@ -83,7 +97,9 @@ This keeps a real "zero flights" response distinct from an unavailable supplier.
 
 ### Idempotent synchronization
 
-`FlightSyncService` persists normalized flights inside a database transaction. Stable raw hashes are used with `updateOrCreate`, allowing repeated polling to update existing flight records instead of creating duplicates.
+`FlightSyncService` persists normalized flights inside a database transaction and uses `updateOrCreate` with a stable identity hash.
+
+The hash includes the supplier, flight number, origin, destination, departure time, and cabin class. Mutable inventory fields such as **price** and **seat availability** are intentionally excluded, so later polls update the same flight record instead of creating duplicates. Cabin variants remain distinct.
 
 ### Cache invalidation
 
@@ -95,6 +111,10 @@ flights:{origin}:{destination}:v{version}:{date?}
 
 After fresh supplier data is synchronized, the route cache version is incremented. New requests immediately move to the new namespace while old keys expire naturally.
 
+### Process isolation
+
+PHP-FPM, queue processing, and scheduling run as separate Docker Compose services rather than sharing one process supervisor. Each process has its own lifecycle and restart behavior, and queue workers can be scaled independently.
+
 ## Tech Stack
 
 | Area | Technology |
@@ -103,7 +123,7 @@ After fresh supplier data is synchronized, the route cache version is incremente
 | Database | MySQL 8 |
 | Cache / Queue | Redis 7 |
 | Web Server | Nginx |
-| Process Management | Supervisor |
+| Runtime | PHP-FPM, Laravel Queue Worker, Laravel Scheduler |
 | Infrastructure | Docker, Docker Compose |
 | Testing | PHPUnit |
 | Code Style | Laravel Pint |
@@ -116,43 +136,61 @@ After fresh supplier data is synchronized, the route cache version is incremente
 git clone https://github.com/AfshinEfati/FlightAggregatorDemo.git
 cd FlightAggregatorDemo
 cp .env.example .env
-docker-compose up -d --build
 ```
 
-Initialize the application:
+Build the application image and initialize Laravel:
 
 ```bash
-docker-compose exec app composer install
-docker-compose exec app php artisan key:generate
-docker-compose exec app php artisan migrate --seed
+docker compose build
+docker compose run --rm app composer install
+docker compose run --rm app php artisan key:generate
+docker compose run --rm app php artisan migrate --seed
 ```
 
-The `app` container currently runs PHP-FPM, queue workers, and `schedule:work` under Supervisor.
+Start the runtime services:
+
+```bash
+docker compose up -d
+```
+
+The API is available at:
+
+```text
+http://localhost:8000
+```
+
+To run more queue workers:
+
+```bash
+docker compose up -d --scale queue-worker=2
+```
+
+Because the worker service does not use a fixed `container_name`, Compose can scale it horizontally.
 
 ## Supplier Polling
 
 Poll all active suppliers for all configured routes. If no date is supplied, tomorrow is used:
 
 ```bash
-docker-compose exec app php artisan suppliers:poll
+docker compose exec app php artisan suppliers:poll
 ```
 
 Poll a specific supplier:
 
 ```bash
-docker-compose exec app php artisan suppliers:poll sepehr
+docker compose exec app php artisan suppliers:poll sepehr
 ```
 
 Poll a specific departure date:
 
 ```bash
-docker-compose exec app php artisan suppliers:poll --date=2026-09-10
+docker compose exec app php artisan suppliers:poll --date=2026-09-10
 ```
 
 Or combine both:
 
 ```bash
-docker-compose exec app php artisan suppliers:poll sepehr --date=2026-09-10
+docker compose exec app php artisan suppliers:poll sepehr --date=2026-09-10
 ```
 
 ## API
@@ -180,13 +218,13 @@ POST  /api/v1/admin/suppliers/{id}/poll
 Generate Swagger documentation:
 
 ```bash
-php artisan l5-swagger:generate
+docker compose exec app php artisan l5-swagger:generate
 ```
 
 Then open:
 
 ```text
-/api/documentation
+http://localhost:8000/api/documentation
 ```
 
 ## Testing
@@ -203,7 +241,7 @@ Run style checks:
 vendor/bin/pint --test
 ```
 
-The current test suite covers:
+The test suite covers:
 
 - flight search API behavior
 - general and date-specific cache invalidation
@@ -211,8 +249,11 @@ The current test suite covers:
 - requested departure-date propagation
 - supplier HTTP failure handling
 - CLI departure-date validation
+- stable identity hashes across price/capacity changes
+- distinct identity hashes for cabin variants
+- supplier polling overlap-lock identity
 
-GitHub Actions runs the test suite and Pint checks automatically on pushes and pull requests.
+GitHub Actions validates Composer metadata, restores a Composer dependency cache, runs PHPUnit and Pint, validates `docker compose config`, and builds the application image on pushes and pull requests.
 
 ## Project Structure
 
@@ -231,7 +272,7 @@ app/
 
 ## What This Project Demonstrates
 
-This repository is intentionally backend-focused. It shows how I approach third-party integrations and asynchronous workflows in Laravel: keeping external systems isolated, making repeated synchronization safe, distinguishing failures from valid empty responses, keeping cached data coherent, and covering critical behavior with automated tests.
+This repository is intentionally backend-focused. It shows how I approach third-party integrations and asynchronous workflows in Laravel: keeping external systems isolated, making repeated synchronization safe, preventing duplicate concurrent work, distinguishing failures from valid empty responses, isolating runtime processes, keeping cached data coherent, and covering critical behavior with automated tests.
 
 ## License
 
